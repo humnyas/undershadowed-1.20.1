@@ -1,0 +1,37 @@
+{
+	"schemaVersion": 1,
+	"id": "undershadowed",
+	"version": "${version}",
+	"name": "Undershadowed",
+	"description": "Overhauls Minecraft's entity shadows. Keeps them within the vanilla pixelated style, staying true to the grid. Includes no shaders",
+	"authors": [
+		"Humnyas"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "MIT",
+	"icon": "assets/undershadowed/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"fabric.humnyas.undershadowed.Undershadowed"
+		],
+		"client": [
+			"fabric.humnyas.undershadowed.UndershadowedClient"
+		]
+	},
+	"mixins": [
+		"undershadowed.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.16.13",
+		"minecraft": "~1.20.1",
+		"java": ">=17",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"another-mod": "*"
+	}
+}
