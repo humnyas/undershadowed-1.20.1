@@ -8,6 +8,7 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class ShadowDataRegistry {
@@ -20,6 +21,12 @@ public class ShadowDataRegistry {
     // Makes it so expensive checks are run less often - stores the pre-computed results
     public static final Map<Entity, List<Vec3d>> SOURCE_POSITIONS = new ConcurrentHashMap<>();
     public static final Map<Entity, Long> LAST_UPDATE_TICK = new HashMap<>();
+
+    // Base height of an entities shadow before warping
+    public static final Map<Entity, Float> BASE_SHADOW_HEIGHT = new HashMap<>();
+    public static final Map<Entity, Float> BASE_SHADOW_OFFSET = new HashMap<>();
+
+    public static final Map<Entity, Float> LAST_BODY_YAW = new WeakHashMap<>();
 
     // Caches data for each model that will stay the same indefinitely
     public static final Map<Identifier, Float> ALPHA_CACHE = new HashMap<>();

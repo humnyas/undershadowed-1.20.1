@@ -1,16 +1,13 @@
 package fabric.humnyas.undershadowed.geometry;
 import static fabric.humnyas.undershadowed.core.ShadowDataRegistry.*;
 
+import fabric.humnyas.undershadowed.math.PolygonMath;
 import net.minecraft.client.model.ModelPart;
-import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.math.Vec2f;
-import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.*;
 
 public class ShadowGeometry {
@@ -18,8 +15,9 @@ public class ShadowGeometry {
     public static List<List<Vector3f>> getVertices(Map<ModelPart, BoneDataRecord> boneData, Entity entity) {
         List<List<Vector3f>> vertices = new LinkedList<>();
 
-        float entityYaw = entity.getBodyYaw();
-        Quaternionf entityRotation = new Quaternionf().rotateY((float) Math.toRadians(-entityYaw));
+        float bodyYaw = ModelDataExtractor.estimateBodyYaw(entity);
+
+        Quaternionf entityRotation = new Quaternionf().rotateY((float) Math.toRadians(-bodyYaw));
 
         for (BoneDataRecord data : boneData.values()) {
             float
@@ -79,10 +77,10 @@ public class ShadowGeometry {
 
             List<Vec2f> uniqueVertices = PolygonMath.removeNearDuplicates(entry, epsilon);
             List<Vec2f> hull = PolygonMath.convexHull(uniqueVertices);
-            List<Vec2f> cleanedHull = PolygonMath.removeColinearPoints(hull, epsilon);
+            //List<Vec2f> cleanedHull = PolygonMath.removeColinearPoints(hull, epsilon);
 
-            if (cleanedHull.size() >= 3) {
-                pruned.add(cleanedHull);
+            if (hull.size() >= 3) {
+                pruned.add(hull);
             }
         }
 
@@ -109,6 +107,11 @@ public class ShadowGeometry {
 
                 if (sourceAngle != 0) {
                     flattenedX = x * cos - z * sin;
+
+                    float epsilon = 1e-2f;
+                    if (Math.abs(flattenedX) < epsilon) {
+                        flattenedX = epsilon * Math.signum(flattenedX + epsilon/10);
+                    }
                 }
 
                 Vec2f flattenedVertex = new Vec2f(flattenedX, vertex.y);
@@ -121,101 +124,41 @@ public class ShadowGeometry {
         return flattenedVertices;
     }
 
-    // Iterates through all the bones in a model and returns their properties
-    public static Map<ModelPart, BoneDataRecord> extractBoneData(Object model) {
-        Map<ModelPart, BoneDataRecord> partDataMap = new HashMap<>();
+    public static List<List<Vec2f>> rotateShadow(List<List<Vec2f>> bones, float sourceDegrees, float size) {
+        List<List<Vec2f>> rotatedBones = new LinkedList<>();
 
-        Class<?> modelClass = model.getClass();
+        float
+                angleRad = (float) Math.toRadians(sourceDegrees + 180), // Make it face away from the source
+                cos = (float) Math.cos(angleRad),
+                sin = (float) Math.sin(angleRad);
 
-        Field[] fields = MODEL_FIELD_CACHE.computeIfAbsent(modelClass, clazz -> {
-            Field[] declared = clazz.getDeclaredFields();
-            List<Field> nonStaticNonSynthetic = new ArrayList<>();
-            for (Field field : declared) {
-                if (!Modifier.isStatic(field.getModifiers()) && !field.isSynthetic()) {
-                    field.setAccessible(true);
-                    nonStaticNonSynthetic.add(field);
+        for (List<Vec2f> bone : bones) {
+            List<Vec2f> rotatedBone = new ArrayList<>();
+
+            for (Vec2f vertex : bone) {
+                float
+                        translatedX = vertex.x,
+                        translatedY = vertex.y - size,
+                        rotatedX = translatedX * cos - translatedY * sin,
+                        rotatedY = translatedX * sin + translatedY * cos;
+
+                float epsilon = 1e-2f;
+                if (Math.abs(rotatedX) < epsilon) {
+                    rotatedX = epsilon * Math.signum(rotatedX + epsilon/10);
+                } if (Math.abs(rotatedY) < epsilon) {
+                    rotatedY = epsilon * Math.signum(rotatedY + epsilon/10);
                 }
+
+                rotatedBone.add(new Vec2f(rotatedX, rotatedY));
             }
-            return nonStaticNonSynthetic.toArray(new Field[0]);
-        });
 
-        // Checks through all the parts
-        for (Field field : fields) {
-            if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) continue;
-            field.setAccessible(true);
-
-            try {
-                Object value = field.get(model);
-                if (value instanceof ModelPart part) {
-                    BoneDataRecord data = extractPartData(part);
-                    if (data != null) partDataMap.put(part, data);
-                }
-            } catch (IllegalAccessException ignored) {}
+            rotatedBones.add(rotatedBone);
         }
 
-        // Returns the list of all the part data
-        return partDataMap;
+        return rotatedBones;
     }
 
-    // Returns the properties for the specified part
-    public static BoneDataRecord extractPartData(ModelPart part) {
-        if (part == null) return null;
-
-        Float[] partSize = getPartSize(part);
-
-        return new BoneDataRecord(
-                part.pivotX / 16f,
-                part.pivotY / 16f,
-                part.pivotZ / 16f,
-                part.pitch,
-                part.yaw,
-                part.roll,
-                partSize[0] / 16f,
-                partSize[1] / 16f,
-                partSize[2] / 16f
-        );
-    }
-
-    // Returns the size of the specified part
-    public static Float[] getPartSize(ModelPart part) {
-        MatrixStack matrixStack = new MatrixStack();
-        matrixStack.push();
-
-        final float pivotX = part.pivotX;
-        final float pivotY = part.pivotY;
-        final float pivotZ = part.pivotZ;
-
-        final float[] min = {Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY};
-        final float[] max = {Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY};
-        part.forEachCuboid(matrixStack, (matrix, path, index, cuboid) -> {
-            // Apply pivot and transform to world space
-            matrixStack.translate(pivotX, pivotY, pivotZ);
-            Matrix4f pose = matrixStack.peek().getPositionMatrix();
-
-            // Now calculate world space positions
-            float worldMinX = pose.m30() + cuboid.minX;
-            float worldMinY = pose.m31() + cuboid.minY;
-            float worldMinZ = pose.m32() + cuboid.minZ;
-
-            float worldMaxX = pose.m30() + cuboid.maxX;
-            float worldMaxY = pose.m31() + cuboid.maxY;
-            float worldMaxZ = pose.m32() + cuboid.maxZ;
-
-            // Find the world-space min/max
-            if (worldMinX < min[0]) min[0] = worldMinX;
-            if (worldMinY < min[1]) min[1] = worldMinY;
-            if (worldMinZ < min[2]) min[2] = worldMinZ;
-
-            if (worldMaxX > max[0]) max[0] = worldMaxX;
-            if (worldMaxY > max[1]) max[1] = worldMaxY;
-            if (worldMaxZ > max[2]) max[2] = worldMaxZ;
-        });
-
-        // Now return the size in world space
-        return new Float[] {
-                max[0] - min[0],
-                max[1] - min[1],
-                max[2] - min[2]
-        };
+    public static List<List<Vec2f>> squishShadow(List<List<Vec2f>> vertices, float sizeMultiplier) { // Make the shadow sizeMultiplier times bigger/smaller
+        return vertices; // Remove errors temporarily
     }
 }

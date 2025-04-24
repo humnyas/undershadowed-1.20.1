@@ -1,4 +1,4 @@
-package fabric.humnyas.undershadowed.geometry;
+package fabric.humnyas.undershadowed.math;
 
 import net.minecraft.util.math.Vec2f;
 
@@ -141,7 +141,6 @@ public class PolygonMath {
             return Double.compare(angleA, angleB);
         });
     } // Sorts counter-clockwise from around the anchor
-
 
     // Generic helpers
     public static List<Vec2f> removeNearDuplicates(List<Vec2f> entry, float epsilon) {

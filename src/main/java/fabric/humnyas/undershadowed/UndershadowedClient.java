@@ -19,11 +19,40 @@ public class UndershadowedClient implements ClientModInitializer {
 
 			for (Entity entity : client.world.getEntities()) {
 				if (entity instanceof LivingEntity) {
-					ShadowEngine.processEntityData(entity, context);
+					ShadowEngine.makeShadow(entity, context);
 				}
 			}
 		});
-
-		// TODO: Also remove vanilla shadows on the client side
 	}
+
+	/*
+		v main
+			v java
+				v fabric.humnyas.undershadowed
+					v core
+						ShadowDataRegistry.class
+						ShadowEngine.class
+					v geometry
+						PolygonMath.class
+						ShadowDataUtils.class
+						ShadowGeometry.class
+					> mixin
+					v render
+						LightSourceHelper.class
+						ShadowRenderer.class
+						TransparencyCalculator.class
+					UndershadowedClient.class
+			> resources
+
+		Where
+			ShadowDataRegistry - Holds important data, maps and records
+			ShadowEngine - Entry point for the shadow rendering
+			PolygonMath - Holds mathematical functions, like earClipping
+			ShadowDataUtils - Has methods which get data for rendering shadows
+			ShadowGeometry - Manipulates the vertices so the shadows can react to the environment
+			LightSourceHelper - Calculates data like the angles to nearby light sources
+			ShadowRenderer - Holds methods to actually render the shadow
+			TransparencyCalculator - Calculates data like the transparency of the shadow
+			UndershadowedClient - Main entry point for the mod
+	*/
 }

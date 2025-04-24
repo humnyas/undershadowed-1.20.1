@@ -1,8 +1,12 @@
 package fabric.humnyas.undershadowed.core;
 import static fabric.humnyas.undershadowed.core.ShadowDataRegistry.*;
+import static fabric.humnyas.undershadowed.geometry.ShadowGeometry.*;
+import static fabric.humnyas.undershadowed.geometry.ModelDataExtractor.*;
 
-import fabric.humnyas.undershadowed.render.AppearanceHandler;
-import fabric.humnyas.undershadowed.geometry.ShadowGeometry;
+import fabric.humnyas.undershadowed.Undershadowed;
+import fabric.humnyas.undershadowed.render.LightSourceHelper;
+import fabric.humnyas.undershadowed.render.ShadowRenderer;
+import fabric.humnyas.undershadowed.render.TransparencyCalculator;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.model.ModelPart;
@@ -17,14 +21,8 @@ import org.joml.Vector3f;
 import java.lang.reflect.Method;
 import java.util.*;
 
-//      TODO: Entity head looks wrong
-//      TODO: Animations aren't played in first person
-//      TODO: Shadows are visible through entities and blocks
-
-// TODO: fix removing vanilla shadows
-
 public class ShadowEngine {
-    public static void processEntityData(Entity entity, WorldRenderContext context) {
+    public static Map<ModelPart, BoneDataRecord> processEntityData(Entity entity) {
         MinecraftClient client = MinecraftClient.getInstance();
         EntityRenderDispatcher dispatcher = client.getEntityRenderDispatcher();
         Object renderer = dispatcher.getRenderer(entity);
@@ -36,35 +34,30 @@ public class ShadowEngine {
 
         try {
             Class<?> rendererClass = Class.forName("net.minecraft.client.render.entity." + entityClassName + "Renderer");
-            Map<ModelPart, BoneDataRecord> boneData = null;
-
             if (rendererClass.isInstance(renderer)) {
                 Method getModelMethod = rendererClass.getMethod("getModel");
                 Object model = getModelMethod.invoke(renderer);
-
-                boneData = ShadowGeometry.extractBoneData(model);
-            }
-
-            if (boneData != null) {
-                MatrixStack matrices = context.matrixStack();
-
-                makeShadow(entity, boneData, matrices);
+                return extractBoneData(model);
             }
         } catch (Exception ignored) {}
+
+        return null;
     }
 
-    public static void makeShadow(
-            Entity entity, Map<ModelPart, BoneDataRecord> boneData, MatrixStack matrices
-    ) {
+    public static void makeShadow(Entity entity, WorldRenderContext context) {
+        MatrixStack matrices = context.matrixStack();
+        Map<ModelPart, BoneDataRecord> boneData = processEntityData(entity);
+        if (boneData == null) return;
+
         MinecraftClient client = MinecraftClient.getInstance();
+        float tickDelta = client.getTickDelta();
         World world = client.world;
         if (world == null) return;
 
-        float tickDelta = client.getTickDelta();
-        long lastTick; List<Vec3d> sources = new ArrayList<>();
-        List<List<Vec2f>> totalVertices = new LinkedList<>();
+        long lastTick;
+        List<Vec3d> sources = new ArrayList<>();
 
-        // Resets the time for each entity every
+        // Resets the time for each entity
         if (LAST_UPDATE_TICK.containsKey(entity)) {
             lastTick = LAST_UPDATE_TICK.get(entity);
         } else {
@@ -74,34 +67,38 @@ public class ShadowEngine {
 
         // Gets new light source vectors every UPDATE_INTERVAL ticks
         if (world.getTime() - lastTick > UPDATE_INTERVAL) {
-            sources = AppearanceHandler.getNearbySourcePositions(entity);
+            sources = LightSourceHelper.getNearbySourcePositions(entity);
             SOURCE_POSITIONS.put(entity, sources);
             LAST_UPDATE_TICK.put(entity, world.getTime());
         } else if (SOURCE_POSITIONS.containsKey(entity)) {
             sources = SOURCE_POSITIONS.get(entity);
         }
 
-        List<List<Vector3f>> vertices = ShadowGeometry.getVertices(boneData, entity);
-        List<Float> sourceAngles = AppearanceHandler.getSourceAngles(entity, sources);
-        float opacity = AppearanceHandler.getTransparency(entity, sourceAngles);
+        List<List<Vec2f>> totalVertices = new LinkedList<>();
+        List<List<Vector3f>> vertices = getVertices(boneData, entity);
+        List<Float[]> sourceAngles = LightSourceHelper.getSourceAngles(entity, sources);
 
-        // Gets vertices for each light source affecting the entity
-        for (float angle : sourceAngles) {
-            List<List<Vec2f>> flattenedVertices = ShadowGeometry.flattenVertices(vertices, angle); // TODO : Make sure it returns the list with the vertices rotated away from the source
-            List<List<Vec2f>> prunedVertices = ShadowGeometry.pruneVertices(flattenedVertices);
+        float opacity = TransparencyCalculator.getTransparency(entity);
 
-            // TODO: Get size
-            //      -> Size proportionate to the angle of the sun over the entity
-            //            --> Directly above the character, make it look almost like a circle
-            //            --> At the horizon, make it approximately 1.5x the actual height
+        float size = getShadowSize(entity, vertices);
+        float centerBottomOffset = centerBottomOffset(entity, vertices);
 
-            totalVertices.addAll(prunedVertices);
+        for (Float[] angles : sourceAngles) {
+            float horizontalAngle = angles[0], verticalAngle = angles[1];
+
+            float morphedSize = morphShadowSize(size, verticalAngle);
+
+            List<List<Vec2f>> flattenedVertices = flattenVertices(vertices, horizontalAngle); // Flattens the vertices to the angle
+            List<List<Vec2f>> prunedVertices = pruneVertices(flattenedVertices); // Removes redundant vertices
+            List<List<Vec2f>> rotatedVertices = rotateShadow(prunedVertices, horizontalAngle, centerBottomOffset); // Rotates the shadow to face away from light source
+            List<List<Vec2f>> squishedVertices = squishShadow(rotatedVertices, morphedSize); // flattens / stretches the shadow to appear morphed in the way it should be expected
+
+
+            totalVertices.addAll(squishedVertices);
         }
-
-        // TODO: Size proportionate to the angle of the sun over the entity
-        // TODO: Pixelate shadow output
-        // TODO: Bend shadow if intersecting non-flat surfaces
         // Renders the shadow
-        AppearanceHandler.renderShadow(matrices, entity, tickDelta, totalVertices, opacity);
+        ShadowRenderer.renderShadow(matrices, entity, tickDelta, totalVertices, opacity);
     }
 }
+
+
